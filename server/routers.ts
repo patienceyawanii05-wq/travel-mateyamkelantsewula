@@ -16,9 +16,13 @@ import {
 } from "./db";
 import {
   buildTravelMessages,
+  buildTripFollowUp,
+  collectTripEssentials,
   extractDestination,
-  isTripPlanRequest,
+  isTripPlanReady,
   itinerarySummary,
+  messageAddsTripDetail,
+  shouldAskTripFollowUp,
   titleFromMessage,
   type TravelChatMessage,
 } from "./travel";
@@ -44,14 +48,14 @@ export const appRouter = router({
 
   travel: router({
     chat: publicProcedure
-      .input(z.object({ messages: z.array(chatMessageSchema).min(1).max(16), conversationId: z.number().int().positive().optional() }))
+      .input(z.object({ messages: z.array(chatMessageSchema).min(1).max(60), conversationId: z.number().int().positive().optional() }))
       .mutation(async ({ ctx, input }) => {
         const lastMessage = input.messages.at(-1);
         if (!lastMessage || lastMessage.role !== "user") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Send a traveller message to continue." });
         }
 
-        const destination = extractDestination(lastMessage.content);
+        let conversationHistory = input.messages as TravelChatMessage[];
         let conversationId = input.conversationId;
 
         if (ctx.user && conversationId) {
@@ -59,15 +63,26 @@ export const appRouter = router({
           if (!conversation) {
             throw new TRPCError({ code: "FORBIDDEN", message: "This travel conversation is not available." });
           }
+          const storedMessages = await getTravelMessages(conversationId);
+          conversationHistory = [...storedMessages.map(message => ({ role: message.role, content: message.content })), lastMessage];
         }
 
-        const completion = await invokeLLM({
-          model: "gpt-5-mini",
-          messages: buildTravelMessages(input.messages as TravelChatMessage[]),
-          maxTokens: 1400,
-        });
-        const rawReply = completion.choices[0]?.message?.content;
-        const reply = typeof rawReply === "string" ? rawReply.trim() : "";
+        const essentials = collectTripEssentials(conversationHistory);
+        const destination = essentials.destination ?? extractDestination(lastMessage.content);
+        let reply = "";
+
+        if (shouldAskTripFollowUp(conversationHistory)) {
+          reply = buildTripFollowUp(conversationHistory);
+        } else {
+          const completion = await invokeLLM({
+            model: "gpt-5-mini",
+            messages: buildTravelMessages(conversationHistory),
+            maxTokens: 1400,
+          });
+          const rawReply = completion.choices[0]?.message?.content;
+          reply = typeof rawReply === "string" ? rawReply.trim() : "";
+        }
+
         if (!reply) {
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Travel Mate could not prepare a reply. Please try again." });
         }
@@ -80,7 +95,7 @@ export const appRouter = router({
           await createTravelMessage(conversationId, "user", lastMessage.content);
           await createTravelMessage(conversationId, "assistant", reply);
 
-          if (isTripPlanRequest(lastMessage.content) && destination) {
+          if (isTripPlanReady(conversationHistory) && messageAddsTripDetail(lastMessage.content) && destination) {
             itineraryId = await createSavedItinerary({
               userId: ctx.user.id,
               conversationId,

@@ -175,7 +175,7 @@ export default function Home() {
     chat.mutate({
       messages: nextMessages.filter(
         (message): message is { role: "user" | "assistant"; content: string } => message.role !== "system",
-      ),
+      ).slice(-60),
       conversationId: activeConversationId,
     });
   }

@@ -13,3 +13,8 @@
 - [x] Extend automated coverage for signed-in saved-content access and conversation ownership behavior.
 - [x] Verify the production build, interactive chat flows, maps, saved content, and responsive design.
 - [x] Save a final project checkpoint and deliver the completed app.
+- [x] Track trip essentials across consecutive messages so travellers can provide details naturally over several turns.
+- [x] Generate short, specific follow-up questions only for the missing trip details while answering standalone travel questions directly.
+- [x] Persist and reload full recent conversations so follow-up context survives reopening a chat.
+- [x] Add conversation-flow tests for partial trip details, direct questions, and completed trip plans.
+- [x] Verify the revised conversational experience and save a new checkpoint.
