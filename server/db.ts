@@ -1,6 +1,12 @@
-import { eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import {
+  InsertUser,
+  savedItineraries,
+  travelConversations,
+  travelMessages,
+  users,
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +95,86 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function createTravelConversation(userId: number, title: string, destination?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+
+  const result = await db.insert(travelConversations).values({ userId, title, destination });
+  return Number(result[0].insertId);
+}
+
+export async function getTravelConversationForUser(userId: number, conversationId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const rows = await db
+    .select()
+    .from(travelConversations)
+    .where(and(eq(travelConversations.id, conversationId), eq(travelConversations.userId, userId)))
+    .limit(1);
+  return rows[0];
+}
+
+export async function getRecentTravelConversations(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select()
+    .from(travelConversations)
+    .where(eq(travelConversations.userId, userId))
+    .orderBy(desc(travelConversations.updatedAt))
+    .limit(12);
+}
+
+export async function createTravelMessage(
+  conversationId: number,
+  role: "user" | "assistant",
+  content: string,
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+
+  await db.insert(travelMessages).values({ conversationId, role, content });
+  await db
+    .update(travelConversations)
+    .set({ updatedAt: new Date() })
+    .where(eq(travelConversations.id, conversationId));
+}
+
+export async function getTravelMessages(conversationId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({ id: travelMessages.id, role: travelMessages.role, content: travelMessages.content, createdAt: travelMessages.createdAt })
+    .from(travelMessages)
+    .where(eq(travelMessages.conversationId, conversationId))
+    .orderBy(asc(travelMessages.createdAt));
+}
+
+export async function saveItinerary(input: {
+  userId: number;
+  conversationId?: number;
+  destination: string;
+  summary: string;
+  itineraryBody: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+
+  const result = await db.insert(savedItineraries).values(input);
+  return Number(result[0].insertId);
+}
+
+export async function getSavedItineraries(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select()
+    .from(savedItineraries)
+    .where(eq(savedItineraries.userId, userId))
+    .orderBy(desc(savedItineraries.createdAt))
+    .limit(12);
+}
